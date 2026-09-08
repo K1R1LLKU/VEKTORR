@@ -1,16 +1,16 @@
 import flet as ft
 import os
 import sys
+import json
+import urllib.request
+import urllib.parse
+import urllib.error
 import subprocess
 import datetime
-import requests
-import openai
-import speech_recognition as sr
-import pyttsx3
 
 # =====================================================================
-# VEKTOR OS // TACTICAL & AI EXECUTIVE SYSTEM v13.0
-# СИСТЕМА УПРАВЛЕНИЯ ПАРАМОНА (КИРИЛЛА КУДРЯВЦЕВА)
+# VEKTOR OS // TACTICAL NATIVE CORE v14.0 (ZERO EXTERNAL DEPENDENCIES)
+# 100% АВТОНОМНЫЙ КОД: РАБОТАЕТ НА ANDROID (SERIOUS PYTHON) И ПК
 # =====================================================================
 
 EXERCISES_CATALOG = {
@@ -44,60 +44,78 @@ EXERCISES_CATALOG = {
     ]
 }
 
+TEAM_MEMBERS = {
+    "🎓 Репетитор (30 лет стажа)": "Ты — добрый, терпеливый репетитор. Объясняй логику через наводящие вопросы.",
+    "⚡ Олег Тиньков": "Ты — Олег Тиньков. Общайся дерзко, мотивируй на масштабный бизнес и продажи.",
+    "🎨 DALL-E 3 Художник": "Ты — ИИ-художник. Описывай промпты для генерации артов.",
+    "⚖️ Михаил (Главный юрист)": "Ты — юрист высшей квалификации. Консультируй по законам РФ.",
+    "👮‍♂️ Сергей (ФСБ / Безопасность)": "Ты — офицер безопасности и OSINT-эксперт. Анализируй контрагентов.",
+    "📊 Надежда (Финдир)": "Ты — финансовый директор. Считай юнит-экономику, EBITDA и налоги.",
+    "📸 Мария (SMM & PR)": "Ты — SMM-стратег. Помогай с продвижением агентства AZIMUT.",
+    "🥊 «Калибр» (Спецназ / АРБ)": "Ты — инструктор спецназа. Требуй дисциплину, спорт и характер.",
+    "🌌 Пантелеймон (Астролог)": "Ты — нумеролог и астролог. Разбирай Старшие Арканы."
+}
+
+class NetClient:
+    """ Встроенный HTTP-клиент на чистом urllib (работает везде без pip install requests) """
+    @staticmethod
+    def get_json(url, timeout=8):
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'VEKTOR-Mobile-Engine/14.0'}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                if response.status == 200:
+                    return json.loads(response.read().decode('utf-8'))
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def post_json(url, payload, headers, timeout=25):
+        data_bytes = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(url, data=data_bytes, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                err_json = json.loads(e.read().decode('utf-8'))
+                return {"error": err_json.get("error", {}).get("message", str(e))}
+            except Exception:
+                return {"error": f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"error": f"Сетевая ошибка: {e}"}
+
 class OSINTEngine:
     @staticmethod
     def get_ip_info(target):
         clean_target = target.strip().replace("https://", "").replace("http://", "").split("/")[0]
-        try:
-            res = requests.get(f"http://ip-api.com/json/{clean_target}?fields=status,message,country,city,isp,org,as,query", timeout=8)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("status") == "success":
-                    return (
-                        f"🌐 **VEKTOR OSINT RECON:**\n"
-                        f"• Узел: `{data.get('query')}`\n"
-                        f"• Страна: **{data.get('country')}**\n"
-                        f"• Город: **{data.get('city')}**\n"
-                        f"• Провайдер (ISP): **{data.get('isp')}**\n"
-                        f"• Организация: **{data.get('org')}**\n"
-                        f"• AS-сеть: **{data.get('as')}**"
-                    )
-            return f"⚠️ Узел не найден или закрыт для внешних запросов."
-        except Exception as e:
-            return f"❌ Ошибка сетевого запроса: {e}"
+        url = f"http://ip-api.com/json/{clean_target}?fields=status,message,country,city,isp,org,as,query"
+        data = NetClient.get_json(url)
+        if data and data.get("status") == "success":
+            return (
+                f"🌐 **VEKTOR OSINT RECON:**\n"
+                f"• Узел: `{data.get('query')}`\n"
+                f"• Страна: **{data.get('country')}**\n"
+                f"• Город: **{data.get('city')}**\n"
+                f"• Провайдер (ISP): **{data.get('isp')}**\n"
+                f"• Организация: **{data.get('org')}**\n"
+                f"• AS-сеть: **{data.get('as')}**"
+            )
+        return "⚠️ Узел не найден или закрыт для внешних запросов."
 
     @staticmethod
     def generate_dorks(query):
         q = query.replace('"', '')
         return (
-            f"🔍 **VEKTOR DORKING ДЛЯ:** `{q}`\n\n"
+            f"🔍 **VEKTOR DORKING ОПЕРАТОРЫ ДЛЯ:** `{q}`\n\n"
             f"1. Документы: `\"{q}\" filetype:pdf OR filetype:docx OR filetype:xlsx`\n"
             f"2. Профили: `site:linkedin.com/in/ OR site:vk.com OR site:t.me \"{q}\"`\n"
             f"3. Реестры: `\"{q}\" (ИНН OR ОГРН OR реестр OR декларация)`\n"
             f"4. Код: `site:github.com OR site:gitlab.com \"{q}\"`"
         )
-
-class VoiceModulator:
-    PROFILES = {
-        "Мужской": {"rate": 150, "voice_index": 0},
-        "Женский": {"rate": 180, "voice_index": 1},
-        "Цифровой": {"rate": 130, "voice_index": 0},
-        "Детский": {"rate": 210, "voice_index": 1}
-    }
-
-    @staticmethod
-    def configure_tts(engine, profile_name):
-        if not engine:
-            return
-        profile = VoiceModulator.PROFILES.get(profile_name, VoiceModulator.PROFILES["Мужской"])
-        try:
-            voices = engine.getProperty('voices')
-            if voices:
-                v_idx = profile["voice_index"] if profile["voice_index"] < len(voices) else 0
-                engine.setProperty('voice', voices[v_idx].id)
-            engine.setProperty('rate', profile["rate"])
-        except Exception:
-            pass
 
 class TelephonyEngine:
     @staticmethod
@@ -105,95 +123,76 @@ class TelephonyEngine:
         clean_number = "".join(c for c in phone_str if c.isdigit() or c == '+')
         if not clean_number:
             return "⚠️ Введите корректный номер телефона (например: +79991234567)"
-        try:
-            res = requests.get(f"https://htmlweb.ru/json/geo/phone/{clean_number}", timeout=6)
-            if res.status_code == 200:
-                data = res.json()
-                return (
-                    f"📞 **ИНФОРМАЦИЯ О НОМЕРЕ:** `{clean_number}`\n"
-                    f"• Страна: **{data.get('country', {}).get('name', 'Россия')}**\n"
-                    f"• Регион: **{data.get('region', {}).get('name', 'Не определен')}**\n"
-                    f"• Оператор: **{data.get('oper', {}).get('brand', 'Не определен')}**"
-                )
-            return f"📞 Номер: `{clean_number}` (Формат валиден)"
-        except Exception:
-            return f"📞 Номер: `{clean_number}` (Международный формат)"
-
-TEAM_MEMBERS = {
-    "🎓 Репетитор (30 лет стажа)": "Ты — добрый, терпеливый репетитор по всем предметам. Объясняй логику через наводящие вопросы.",
-    "⚡ Олег Тиньков": "Ты — Олег Тиньков. Общайся энергично, дерзко, мотивируй на масштабный бизнес и продажи.",
-    "🎨 DALL-E 3 Художник": "Ты — ИИ-художник. Помогаешь генерировать фотореалистичные изображения и арты.",
-    "⚖️ Михаил (Главный юрист)": "Ты — юрист высшей квалификации. Давай четкие консультации по законам РФ.",
-    "👮‍♂️ Сергей (ФСБ / Безопасность)": "Ты — офицер безопасности и OSINT-эксперт. Консультируй по проверке контрагентов и защите данных.",
-    "📊 Надежда (Финдир)": "Ты — финансовый директор. Считай юнит-экономику, EBITDA и налоги.",
-    "📸 Мария (SMM & PR)": "Ты — SMM-стратег. Помогай с продвижением агентства AZIMUT и личного бренда.",
-    "🥊 «Калибр» (Спецназ / АРБ)": "Ты — инструктор спецназа. Требуй дисциплину, спорт, правильное питание и отработку ударов.",
-    "🌌 Пантелеймон (Астролог)": "Ты — нумеролог и астролог. Разбирай Старшие Арканы (Звезда, Колесница)."
-}
+        url = f"https://htmlweb.ru/json/geo/phone/{clean_number}"
+        data = NetClient.get_json(url)
+        if data:
+            return (
+                f"📞 **ИНФОРМАЦИЯ О НОМЕРЕ:** `{clean_number}`\n"
+                f"• Страна: **{data.get('country', {}).get('name', 'Россия')}**\n"
+                f"• Регион: **{data.get('region', {}).get('name', 'Не определен')}**\n"
+                f"• Оператор: **{data.get('oper', {}).get('brand', 'Не определен')}**"
+            )
+        return f"📞 Номер: `{clean_number}` (Формат валиден)"
 
 class AIAssistantApp:
     def __init__(self):
         self.openai_key = ""
-        self.selected_model = "gpt-4o-mini"
         self.active_advisor = "🎓 Репетитор (30 лет стажа)"
         self.selected_voice_profile = "Мужской"
-        
-        self.proxy_host = ""
-        self.proxy_port = ""
-        self.proxy_user = ""
-        self.proxy_pass = ""
-        self.use_proxy = False
-        
-        try:
-            self.tts_engine = pyttsx3.init()
-            VoiceModulator.configure_tts(self.tts_engine, self.selected_voice_profile)
-        except Exception:
-            self.tts_engine = None
-
-    def apply_proxy_settings(self):
-        if self.use_proxy and self.proxy_host and self.proxy_port:
-            proxy_url = f"http://{self.proxy_host}:{self.proxy_port}"
-            if self.proxy_user and self.proxy_pass:
-                proxy_url = f"http://{self.proxy_user}:{self.proxy_pass}@{self.proxy_host}:{self.proxy_port}"
-            os.environ["HTTP_PROXY"] = proxy_url
-            os.environ["HTTPS_PROXY"] = proxy_url
-            openai.proxy = proxy_url
-        else:
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            openai.proxy = None
 
     def get_gpt_response(self, user_text):
         if not self.openai_key:
             return "⚠️ Введите ваш OpenAI API Key во вкладке '🔑 Настройки'!"
-        openai.api_key = self.openai_key
-        self.apply_proxy_settings()
+        
         system_prompt = TEAM_MEMBERS.get(self.active_advisor, "Ты - умный ассистент.")
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.openai_key}"
+        }
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
+            ],
+            "temperature": 0.7
+        }
+        
+        res = NetClient.post_json(url, payload, headers)
+        if "error" in res:
+            return f"❌ Ошибка OpenAI: {res['error']}"
         try:
-            response = openai.ChatCompletion.create(
-                model=self.selected_model,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}],
-                timeout=25
-            )
-            return response.choices[0].message.content
+            return res["choices"][0]["message"]["content"]
         except Exception as e:
-            return f"❌ Ошибка соединения: {e}"
+            return f"❌ Ошибка парсинга: {e}"
 
     def generate_image(self, prompt_text):
         if not self.openai_key:
             return None, "⚠️ Введите ваш OpenAI API Key во вкладке '🔑 Настройки'!"
-        openai.api_key = self.openai_key
-        self.apply_proxy_settings()
+        
+        url = "https://api.openai.com/v1/images/generations"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.openai_key}"
+        }
+        payload = {
+            "prompt": prompt_text,
+            "n": 1,
+            "size": "1024x1024"
+        }
+        
+        res = NetClient.post_json(url, payload, headers)
+        if "error" in res:
+            return None, f"❌ Ошибка DALL-E: {res['error']}"
         try:
-            response = openai.Image.create(prompt=prompt_text, n=1, size="1024x1024")
-            return response['data'][0]['url'], "✅ Успешно сгенерировано!"
+            return res["data"][0]["url"], "✅ Успешно сгенерировано!"
         except Exception as e:
-            return None, f"❌ Ошибка генерации: {e}"
+            return None, f"❌ Ошибка парсинга фото: {e}"
 
 app_logic = AIAssistantApp()
 
 def main(page: ft.Page):
-    # ПРИСВОЕНИЕ ОФИЦИАЛЬНОГО ИМЕНИ VEKTOR
     page.title = "VEKTOR"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 10
@@ -217,14 +216,6 @@ def main(page: ft.Page):
         
         ans = app_logic.get_gpt_response(user_text)
         chat_history.controls.append(ft.Text(f"⚡ VEKTOR ({app_logic.active_advisor}):\n{ans}", color=ft.colors.GREEN_100))
-        
-        if app_logic.tts_engine:
-            try:
-                VoiceModulator.configure_tts(app_logic.tts_engine, app_logic.selected_voice_profile)
-                app_logic.tts_engine.say(ans)
-                app_logic.tts_engine.runAndWait()
-            except Exception:
-                pass
         page.update()
 
     def generate_photo_click(e):
@@ -233,7 +224,7 @@ def main(page: ft.Page):
             page.update()
             return
         prompt = user_input.value
-        chat_history.controls.append(ft.Text(f"🎨 Запрос генерации VEKTOR: '{prompt}'", color=ft.colors.PURPLE_200, weight=ft.FontWeight.BOLD))
+        chat_history.controls.append(ft.Text(f"🎨 Запрос генерации: '{prompt}'", color=ft.colors.PURPLE_200, weight=ft.FontWeight.BOLD))
         user_input.value = ""
         page.update()
         
@@ -260,10 +251,10 @@ def main(page: ft.Page):
     ], expand=True)
 
     # -----------------------------------------------------------------
-    # ВКЛАДКА 2: OSINT РАЗВЕДКА & DUE DILIGENCE
+    # ВКЛАДКА 2: OSINT РАЗВЕДКА
     # -----------------------------------------------------------------
-    osint_target_input = ft.TextField(label="Цель OSINT (Домен, IP, ИНН компании, ФИО)", hint_text="example.com или ИНН организации")
-    osint_output_card = ft.Text("Результаты OSINT-разведки и аудита контрагентов появятся здесь...", color=ft.colors.CYAN_200, selectable=True)
+    osint_target_input = ft.TextField(label="Цель OSINT (Домен, IP, ИНН, ФИО)", hint_text="example.com или 8.8.8.8")
+    osint_output_card = ft.Text("Результаты OSINT-разведки появятся здесь...", color=ft.colors.CYAN_200, selectable=True)
 
     def run_ip_recon(e):
         if not osint_target_input.value:
@@ -280,11 +271,11 @@ def main(page: ft.Page):
     def run_ai_due_diligence(e):
         if not osint_target_input.value:
             return
-        osint_output_card.value = "⏳ VEKTOR Intelligence: Офицер Сергей анализирует публичные базы..."
+        osint_output_card.value = "⏳ VEKTOR Intelligence: Офицер Сергей анализирует базы..."
         page.update()
-        prompt_audit = f"Проведи Due Diligence и OSINT-анализ контрагента: '{osint_target_input.value}'. Составь отчет по рискам и государственным реестрам."
+        prompt_audit = f"Проведи Due Diligence и OSINT-анализ цели: '{osint_target_input.value}'. Составь отчет по рискам."
         res = app_logic.get_gpt_response(prompt_audit)
-        osint_output_card.value = f"📊 **VEKTOR DUE DILIGENCE REPORT (ОФИЦЕР СЕРГЕЙ):**\n\n{res}"
+        osint_output_card.value = f"📊 **VEKTOR REPORT (ОФИЦЕР СЕРГЕЙ):**\n\n{res}"
         page.update()
 
     tab_osint = ft.Column([
@@ -293,7 +284,7 @@ def main(page: ft.Page):
         ft.Row([
             ft.ElevatedButton("🌐 IP / Domain Whois", on_click=run_ip_recon, icon=ft.icons.LANGUAGE, bgcolor=ft.colors.CYAN_800),
             ft.ElevatedButton("🔍 Поисковые Dorks", on_click=run_dorks, icon=ft.icons.SEARCH, bgcolor=ft.colors.BLUE_800),
-            ft.ElevatedButton("📊 ИИ-Аудит Контрагента", on_click=run_ai_due_diligence, icon=ft.icons.SECURITY, bgcolor=ft.colors.GREEN_800),
+            ft.ElevatedButton("📊 ИИ-Аудит", on_click=run_ai_due_diligence, icon=ft.icons.SECURITY, bgcolor=ft.colors.GREEN_800),
         ], wrap=True),
         ft.Divider(),
         ft.Container(content=osint_output_card, padding=12, border=ft.border.all(1, ft.colors.BLUE_GREY_700), border_radius=8)
@@ -306,17 +297,15 @@ def main(page: ft.Page):
     voice_profile_dd = ft.Dropdown(
         label="VEKTOR DSP Модулятор голоса",
         value="Мужской",
-        options=[ft.dropdown.Option(v) for v in VoiceModulator.PROFILES.keys()],
+        options=[
+            ft.dropdown.Option("Мужской"),
+            ft.dropdown.Option("Женский"),
+            ft.dropdown.Option("Цифровой"),
+            ft.dropdown.Option("Детский")
+        ],
         expand=True
     )
-    phone_info_card = ft.Text("Введите номер для проверки и выбора профиля модуляции...", color=ft.colors.CYAN_200, selectable=True)
-
-    def on_voice_change(e):
-        app_logic.selected_voice_profile = voice_profile_dd.value
-        VoiceModulator.configure_tts(app_logic.tts_engine, app_logic.selected_voice_profile)
-        phone_info_card.value = f"🎙️ DSP-профиль изменен: `{voice_profile_dd.value}`"
-        page.update()
-    voice_profile_dd.on_change = on_voice_change
+    phone_info_card = ft.Text("Введите номер для проверки оператора...", color=ft.colors.CYAN_200, selectable=True)
 
     def identify_phone(e):
         if not phone_input.value:
@@ -329,13 +318,13 @@ def main(page: ft.Page):
         if raw:
             try:
                 page.launch_url(f"tel:{raw}")
-                phone_info_card.value = f"📞 Вызов на номер: `{raw}` (Модулятор: {app_logic.selected_voice_profile})"
+                phone_info_card.value = f"📞 Инициация вызова: `{raw}` (Модулятор: {voice_profile_dd.value})"
             except Exception as ex:
-                phone_info_card.value = f"⚠️ Ошибка: {ex}"
+                phone_info_card.value = f"⚠️ Ошибка вызова: {ex}"
             page.update()
 
     tab_telephony = ft.Column([
-        ft.Text("📞 VEKTOR Телефония & Голосовой Модулятор", size=18, weight=ft.FontWeight.BOLD),
+        ft.Text("📞 VEKTOR Телефония", size=18, weight=ft.FontWeight.BOLD),
         phone_input,
         voice_profile_dd,
         ft.Row([
@@ -459,7 +448,11 @@ def main(page: ft.Page):
         task_time_inp.value = ""
         render_tasks()
 
-    date_picker = ft.DatePicker(first_date=datetime.datetime(2025, 1, 1), last_date=datetime.datetime(2030, 12, 31), on_change=lambda e: setattr(sys.modules[__name__], 'selected_date', e.control.value) or render_tasks())
+    date_picker = ft.DatePicker(
+        first_date=datetime.datetime(2025, 1, 1),
+        last_date=datetime.datetime(2030, 12, 31),
+        on_change=lambda e: setattr(sys.modules[__name__], 'selected_date', e.control.value) or render_tasks()
+    )
     page.overlay.append(date_picker)
 
     tab_planner = ft.Column([
@@ -470,19 +463,11 @@ def main(page: ft.Page):
     render_tasks()
 
     # -----------------------------------------------------------------
-    # ВКЛАДКА 6: ПРОКСИ / VPN
-    # -----------------------------------------------------------------
-    proxy_sw = ft.Switch(label="Активировать Прокси-шлюз VEKTOR")
-    proxy_h = ft.TextField(label="Host")
-    proxy_p = ft.TextField(label="Port")
-    tab_proxy = ft.Column([ft.Text("🌐 VEKTOR Прокси & VPN Сеть", size=18, weight=ft.FontWeight.BOLD), proxy_sw, proxy_h, proxy_p, ft.ElevatedButton("Применить", on_click=lambda e: page.snack_bar(ft.SnackBar(ft.Text("Прокси обновлен"), open=True)))], scroll=ft.ScrollMode.AUTO, expand=True)
-
-    # -----------------------------------------------------------------
-    # ВКЛАДКА 7: ТЕРМИНАЛ
+    # ВКЛАДКА 6: ТЕРМИНАЛ
     # -----------------------------------------------------------------
     term_out = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
     term_inp = ft.TextField(hint_text="ping, nslookup, clear...", expand=True)
-    term_out.controls.append(ft.Text("┌──(vektor㉿core)-[~]\n└─$ VEKTOR Diagnostic Shell Ready", font_family="monospace", color=ft.colors.GREEN_400, size=11))
+    term_out.controls.append(ft.Text("┌──(vektor㉿core)-[~]\n└─$ Terminal Ready", font_family="monospace", color=ft.colors.GREEN_400, size=11))
 
     def run_term(e):
         if not term_inp.value:
@@ -503,17 +488,14 @@ def main(page: ft.Page):
         term_out.controls.append(ft.Text(out, font_family="monospace", color=ft.colors.GREEN_200, size=11))
         page.update()
 
-    tab_console = ft.Column([ft.Text("💻 VEKTOR Терминал", weight=ft.FontWeight.BOLD, color=ft.colors.GREEN_400), ft.Container(content=term_out, padding=10, bgcolor=ft.colors.BLACK, border=ft.border.all(1, ft.colors.GREEN_800), border_radius=8, expand=True), ft.Row([term_inp, ft.ElevatedButton("Run", on_click=run_term, bgcolor=ft.colors.GREEN_900, color=ft.colors.WHITE)])], expand=True)
+    tab_console = ft.Column([
+        ft.Text("💻 Системный Терминал", weight=ft.FontWeight.BOLD, color=ft.colors.GREEN_400),
+        ft.Container(content=term_out, padding=10, bgcolor=ft.colors.BLACK, border=ft.border.all(1, ft.colors.GREEN_800), border_radius=8, expand=True),
+        ft.Row([term_inp, ft.ElevatedButton("Run", on_click=run_term, bgcolor=ft.colors.GREEN_900, color=ft.colors.WHITE)])
+    ], expand=True)
 
     # -----------------------------------------------------------------
-    # ВКЛАДКА 8: ЯНДЕКС.БРАУЗЕР
-    # -----------------------------------------------------------------
-    b_inp = ft.TextField(value="https://yandex.ru", expand=True)
-    webview = ft.WebView(url="https://yandex.ru", expand=True)
-    tab_browser = ft.Column([ft.Row([b_inp, ft.ElevatedButton("Перейти", on_click=lambda e: setattr(webview, 'url', b_inp.value), bgcolor=ft.colors.RED_700, color=ft.colors.WHITE)]), webview], expand=True)
-
-    # -----------------------------------------------------------------
-    # ВКЛАДКА 9: КОМАНДА СОВЕТНИКОВ
+    # ВКЛАДКА 7: КОМАНДА СОВЕТНИКОВ
     # -----------------------------------------------------------------
     team_cards = []
     for name, desc in TEAM_MEMBERS.items():
@@ -523,13 +505,17 @@ def main(page: ft.Page):
     tab_team = ft.Column([ft.Text("🏛️ Теневой Кабинет VEKTOR", size=18, weight=ft.FontWeight.BOLD), ft.Column(team_cards, scroll=ft.ScrollMode.AUTO, expand=True)], expand=True)
 
     # -----------------------------------------------------------------
-    # ВКЛАДКА 10: НАСТРОЙКИ
+    # ВКЛАДКА 8: НАСТРОЙКИ
     # -----------------------------------------------------------------
-    api_inp = ft.TextField(label="OpenAI API Key", password=True, can_reveal_password=True)
-    tab_account = ft.Column([ft.Text("🔑 Настройки VEKTOR Core", size=18, weight=ft.FontWeight.BOLD), api_inp, ft.ElevatedButton("Сохранить", on_click=lambda e: setattr(app_logic, 'openai_key', api_inp.value.strip()) or setattr(status_badge, 'value', "🟢 Ключ привязан") or page.update())], expand=True)
+    api_inp = ft.TextField(label="OpenAI API Key (sk-...)", password=True, can_reveal_password=True)
+    tab_account = ft.Column([
+        ft.Text("🔑 Настройки VEKTOR Core", size=18, weight=ft.FontWeight.BOLD),
+        api_inp,
+        ft.ElevatedButton("Сохранить", on_click=lambda e: setattr(app_logic, 'openai_key', api_inp.value.strip()) or setattr(status_badge, 'value', "🟢 Ключ привязан") or setattr(status_badge, 'color', ft.colors.GREEN_400) or page.update())
+    ], expand=True)
 
     # -----------------------------------------------------------------
-    # СБОРКА ВСЕХ 10 ВКЛАДОК
+    # СБОРКА ВСЕХ ВКЛАДОК
     # -----------------------------------------------------------------
     tabs = ft.Tabs(
         selected_index=0, scrollable=True,
@@ -539,9 +525,7 @@ def main(page: ft.Page):
             ft.Tab(text="📞 Телефония", content=tab_telephony),
             ft.Tab(text="💪 Спорт", content=tab_fitness),
             ft.Tab(text="📅 Планер", content=tab_planner),
-            ft.Tab(text="🌐 Прокси", content=tab_proxy),
             ft.Tab(text="💻 Терминал", content=tab_console),
-            ft.Tab(text="🔴 Браузер", content=tab_browser),
             ft.Tab(text="🏛️ Команда", content=tab_team),
             ft.Tab(text="🔑 Настройки", content=tab_account),
         ], expand=1
