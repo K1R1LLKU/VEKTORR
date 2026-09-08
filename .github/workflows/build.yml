@@ -1,6 +1,7 @@
 name: Build VEKTOR APK
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
